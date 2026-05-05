@@ -11,6 +11,7 @@ const schema = joi.object({
   DB_USER: joi.string().required(),
   DB_PASSWORD: joi.string().allow(''),
   DB_NAME: joi.string().required(),
+  DATABASE_URL: joi.string().required(),
   JWT_SECRET: joi.string().min(32).required(),
   JWT_ACCESS_EXPIRES_IN: joi.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: joi.string().default('30d')
