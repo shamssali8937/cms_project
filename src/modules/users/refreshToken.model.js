@@ -13,4 +13,5 @@ export const RefreshToken = sequelize.define('RefreshToken', {
   underscored: true,
   timestamps: true,
   updatedAt: false,
+  paranoid: false,
 });
