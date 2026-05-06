@@ -10,4 +10,5 @@ export const Role = sequelize.define('Role', {
   tableName: 'roles',
   underscored: true,
   timestamps: true,
+  paranoid: false,
 });
