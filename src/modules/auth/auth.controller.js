@@ -39,9 +39,17 @@ export const logout = async (req, res, next) => {
   try {
     await authService.logoutUser(req.body.refreshToken);
     res.status(204).send();
-  } catch (err) { next(err); }
+  } catch (err) { 
+    next(err);
+   }
 };
 
 export const me = async (req, res) => {
-  res.json({ data: { id: req.user.cuid, email: req.user.email, displayName: req.user.displayName, roles: req.user.roles?.map(r => ({ name: r.name, label: r.label })) } });
+  res.json({ 
+    data: { 
+      id: req.user.cuid, 
+      email: req.user.email,
+      displayName: req.user.displayName,
+      roles: req.user.roles?.map(r => ({ name: r.name, label: r.label }))
+     } });
 };
