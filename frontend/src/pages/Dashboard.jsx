@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import TopBar from '../components/TopBar';
 import SidePanel from '../components/SidePanel';
 import NotificationAlert from '../components/NotificationAlert';
+import EditorJsField from '../components/EditorJsField';
 
 
 const Dashboard = () => {
@@ -18,8 +19,10 @@ const Dashboard = () => {
   const [error, setError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [editingPost, setEditingPost] = useState(null);
-  // Store content as a plain string for the textarea
-  const [formData, setFormData] = useState({ title: '', contentString: '', excerpt: '', status: 'draft' });
+  const [newPostKey, setNewPostKey] = useState('new-post');
+  // editorData holds raw Editor.js OutputData ({ blocks: [...] })
+  const [formData, setFormData] = useState({ title: '', editorData: { blocks: [] }, excerpt: '', status: 'draft' });
+  const editorRef = useRef(null);
   const [notification, setNotification] = useState({ open: false, message: '', type: 'success' });
 
   const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4321/api/v1';
@@ -129,38 +132,41 @@ const Dashboard = () => {
   };
 
   const handleCreatePost = () => {
-    setFormData({ title: '', contentString: '', excerpt: '', status: 'draft' });
+    setFormData({ title: '', editorData: { blocks: [] }, excerpt: '', status: 'draft' });
     setEditingPost(null);
+    setNewPostKey(`new-post-${Date.now()}`);
     setIsCreating(true);
   };
-  const stringToContentJson = (text) => {
-  if (!text || text.trim() === '') return { blocks: [] };
-  const lines = text.split('\n').filter(line => line.trim().length > 0);
-  const blocks = lines.map(line => ({
-    type: 'paragraph',
-    data: { text: line }
-  }));
-  return { blocks };
-};
-
-const contentJsonToString = (contentObj) => {
-  // If it's a string, try to parse it
-  if (typeof contentObj === 'string') {
-    try {
-      contentObj = JSON.parse(contentObj);
-    } catch (e) {
-      return contentObj; // fallback to raw string
+  // Utility: parse content from DB (may be a JSON string or already an object)
+  const parseContent = (raw) => {
+    if (!raw) return { blocks: [] };
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw); } catch { return { blocks: [] }; }
     }
-  }
-  if (!contentObj || !contentObj.blocks || !Array.isArray(contentObj.blocks)) return '';
-  return contentObj.blocks.map(block => block.data?.text || '').join('\n');
-};
+    return raw;
+  };
 
+  // Utility: extract plain text from Editor.js OutputData for the revision feed
+  const contentJsonToString = (contentObj) => {
+    const parsed = parseContent(contentObj);
+    if (!parsed?.blocks) return '';
+    return parsed.blocks.map((b) => {
+      if (b.type === 'paragraph' || b.type === 'header') return b.data?.text || '';
+      if (b.type === 'list') return (b.data?.items || []).map(item => `- ${item.content || item}`).join('\n');
+      if (b.type === 'quote') return `"${b.data?.text || ''}" - ${b.data?.caption || ''}`;
+      if (b.type === 'code') return b.data?.code || '';
+      if (b.type === 'embed') return `[Embed: ${b.data?.service || 'link'} - ${b.data?.source || ''}]`;
+      if (b.type === 'table') {
+        return (b.data?.content || []).map(row => row.join(' | ')).join('\n');
+      }
+      return b.data?.text || '';
+    }).filter(Boolean).join('\n\n');
+  };
 
   const handleEditPost = (post) => {
     setFormData({
       title: post.title || '',
-      contentString: contentJsonToString(post.content),
+      editorData: parseContent(post.content),
       excerpt: post.excerpt || '',
       status: post.status || 'draft'
     });
@@ -172,31 +178,49 @@ const contentJsonToString = (contentObj) => {
     const token = localStorage.getItem('accessToken');
     if (!token) return;
 
-    // Convert the textarea content to the JSON structure expected by the API
+    // Collect the latest Editor.js output via the ref
+    let editorContent = formData.editorData;
+    if (editorRef.current) {
+      try {
+        editorContent = await editorRef.current.save();
+      } catch (err) {
+        console.warn('Editor.js save failed, using cached data:', err);
+      }
+    }
+
     const payload = {
       title: formData.title,
-      content: stringToContentJson(formData.contentString),
+      content: editorContent,
       excerpt: formData.excerpt,
       status: formData.status
     };
 
     try {
+      let newPostCuid = null;
       if (editingPost) {
         await axios.patch(`${backendUrl}/posts/${editingPost.cuid}`, payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setNotification({ open: true, message: 'Post updated successfully!', type: 'success' });
+        newPostCuid = editingPost.cuid;
       } else {
-        await axios.post(`${backendUrl}/posts`, payload, {
+        const createRes = await axios.post(`${backendUrl}/posts`, payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setNotification({ open: true, message: 'Post created successfully!', type: 'success' });
+        newPostCuid = createRes.data?.data?.cuid;
       }
       // Reload posts
       const postsResponse = await axios.get(`${backendUrl}/posts?limit=8`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setPosts(postsResponse.data.data || []);
+      
+      if (newPostCuid) {
+        setSelectedCuid(newPostCuid);
+        await fetchRevisions(newPostCuid, token);
+      }
+      
       setIsCreating(false);
       setEditingPost(null);
     } catch (err) {
@@ -306,15 +330,17 @@ const contentJsonToString = (contentObj) => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700">Content</label>
-                  <textarea
-                    value={formData.contentString}
-                    onChange={(e) => setFormData({ ...formData, contentString: e.target.value })}
-                    className="mt-1 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-200"
-                    rows="10"
-                    required
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Content
+                    <span className="ml-2 text-xs font-normal text-slate-400">— use the + button to add headings, lists, code, quotes &amp; more</span>
+                  </label>
+                  <EditorJsField
+                    key={editingPost ? editingPost.cuid : newPostKey}
+                    ref={editorRef}
+                    data={formData.editorData}
+                    onChange={(data) => setFormData((prev) => ({ ...prev, editorData: data }))}
+                    placeholder="Start writing your post…"
                   />
-                  <p className="mt-2 text-xs text-slate-500">Each line will become a paragraph block.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700">Status</label>
