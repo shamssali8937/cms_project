@@ -5,24 +5,6 @@ import TopBar from '../components/TopBar';
 import SidePanel from '../components/SidePanel';
 import NotificationAlert from '../components/NotificationAlert';
 
-// Helper: Convert plain text (from textarea) to the JSON structure expected by the API
-const stringToContentJson = (text) => {
-  if (!text || text.trim() === '') return { blocks: [] };
-  const lines = text.split('\n').filter(line => line.trim().length > 0);
-  const blocks = lines.map(line => ({
-    type: 'paragraph',
-    data: { text: line }
-  }));
-  return { blocks };
-};
-
-// Helper: Convert API JSON content back to a plain text string for editing in textarea
-const contentJsonToString = (contentObj) => {
-  if (!contentObj || !contentObj.blocks || !Array.isArray(contentObj.blocks)) return '';
-  return contentObj.blocks
-    .map(block => block.data?.text || '')
-    .join('\n');
-};
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -151,6 +133,29 @@ const Dashboard = () => {
     setEditingPost(null);
     setIsCreating(true);
   };
+  const stringToContentJson = (text) => {
+  if (!text || text.trim() === '') return { blocks: [] };
+  const lines = text.split('\n').filter(line => line.trim().length > 0);
+  const blocks = lines.map(line => ({
+    type: 'paragraph',
+    data: { text: line }
+  }));
+  return { blocks };
+};
+
+const contentJsonToString = (contentObj) => {
+  // If it's a string, try to parse it
+  if (typeof contentObj === 'string') {
+    try {
+      contentObj = JSON.parse(contentObj);
+    } catch (e) {
+      return contentObj; // fallback to raw string
+    }
+  }
+  if (!contentObj || !contentObj.blocks || !Array.isArray(contentObj.blocks)) return '';
+  return contentObj.blocks.map(block => block.data?.text || '').join('\n');
+};
+
 
   const handleEditPost = (post) => {
     setFormData({
