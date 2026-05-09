@@ -8,6 +8,7 @@ const start = async () => {
     console.log('✅ Supabase PostgreSQL connected');
     const server = app.listen(env.PORT, () => {
       console.log(`🚀 Server running on http://localhost:${env.PORT}`);
+      
     });
   } catch (err) {
     console.error('❌ Failed to start:', err);
